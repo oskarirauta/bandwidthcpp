@@ -3,4 +3,4 @@
 #include <string>
 
 const std::string APP_NAME = "bmtest";
-const std::string APP_VERSION = "0.89.0";
+const std::string APP_VERSION = "1.0.0";

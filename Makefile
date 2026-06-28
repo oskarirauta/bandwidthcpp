@@ -8,14 +8,14 @@ INCLUDES+= -I./examples/include -I.
 
 BANDWIDTHCPP_DIR:=.
 include Makefile.inc
-include cmdparser/Makefile.inc
+include usage/Makefile.inc
 
 world: bmtest
 
 objs/bmtest.o: examples/bmtest.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<;
 
-bmtest: $(BANDWIDTH_OBJS) $(CMDPARSER_OBJS) objs/bmtest.o
+bmtest: $(BANDWIDTH_OBJS) $(USAGE_OBJS) objs/bmtest.o
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@;
 
 .PHONY: clean

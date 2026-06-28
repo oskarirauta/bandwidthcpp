@@ -1,15 +1,12 @@
 #include <iostream>
+#include <algorithm>
 #include <chrono>
 #include <thread>
-#include "constants.hpp"
-#include "cmdparser.hpp"
-#include "bandwidth.hpp"
+#include <cstdint>
 
-std::string ifd_name;
-bool list_ifds = false;
-bool kbps = false;
-bool keep_unit = false;
-int interval = 1000;
+#include "constants.hpp"
+#include "usage.hpp"
+#include "bandwidth.hpp"
 
 static void version_header(void) {
 
@@ -17,93 +14,70 @@ static void version_header(void) {
 		"author: Oskari Rauta" << std::endl;
 }
 
-static void usage(const CmdParser::Arg &arg) {
-
-	std::cout << "\nusage: " << arg.cmd << " [args]" << "\n" << std::endl;
-	std::cout << "options:\n" <<
-		" -h, --h               usage\n" <<
-		" -v, --v               version\n" <<
-		" -l, --l               list available interfaces\n" <<
-		" -b, --b               display kbps instead of KBps\n" <<
-		" -k, --k               keep units, do not convert kb to mb even when number grows\n" <<
-		" -d, --d <ms>          interval, 500-4000 as milliseconds, closest to 1s (1000) is most accurate\n" <<
-		" -i, --i <interface>   selects interface to monitor\n" <<
-		std::endl;
-}
-
-static void show_version(const CmdParser::Arg &arg) {
-
-	version_header();
-	exit(0);
-}
-
-static void select_ifd(const CmdParser::Arg &argv) {
-	ifd_name = argv.var;
-}
-
-static void select_delay(const CmdParser::Arg &argv) {
-
-	if ( argv.arg.empty()) {
-		std::cout << "illegal interval selected. Value must be between 500 and 4000. Value was empty." << std::endl;
-		exit(1);
-	}
-
-	int d = 0;
-
-	for ( char ch : argv.var ) {
-
-		if ( !isdigit(ch)) {
-			std::cout << "illegal interval selected. Only digits are allowed as a value." << std::endl;
-			exit(1);
-		}
-
-		d = ( d * 10 ) + ch - 48;
-		if ( d > 4000 ) {
-			std::cout << "illegal interval selected. Values must not exceed 4000." << std::endl;
-			exit(1);
-		}
-	}
-
-	if ( d < 500 || d > 4000 ) {
-		std::cout << "illegal interval selected. Value must be between 500 and 4000." << std::endl;
-		exit(1);
-	}
-
-	interval = d;
-}
-
 int main(int argc, char **argv) {
 
-	CmdParser cmdparser(argc, argv,
-		{
-			{{ "-h", "--h", "-help", "--help" }, [](const CmdParser::Arg &arg) {
-				version_header();
-				usage(arg);
-				exit(0);
-			}, false },
-			{{ "-v", "--v", "-version", "--version" }, show_version },
-			{{ "-i", "--i", "-interface", "--interface" }, select_ifd, true },
-			{{ "-l", "--l", "-list", "--list" }, [](const CmdParser::Arg &arg) {
-				list_ifds = true;
-			}},
-			{{ "-b", "--b", "-B", "--B" }, [](const CmdParser::Arg &arg) {
-				kbps = true;
-			}},
-			{{ "-k", "--k", "-keep", "--keep" }, [](const CmdParser::Arg &arg) {
-				keep_unit = true;
-			}},
-			{{ "-d", "--d", "-interval", "--interval", "-delay", "--delay" }, select_delay, true },
-			{{ "" }, [](const CmdParser::Arg &arg) {
-				std::cout << "unknown argument " << arg.arg << "\n" <<
-					"Try executing " << arg.cmd << " --h for usage" <<
-					std::endl;
-			}}
-		});
+	usage_t usage = {
+		.args = { argc, argv },
+		.info = {
+			.name = APP_NAME,
+			.version = APP_VERSION,
+			.author = "Oskari Rauta",
+			.description = "\nMonitors the bandwidth of a network interface.\n"
+		},
+		.options = {
+			{ "help",      { .key = "h", .word = "help", .desc = "show usage" }},
+			{ "version",   { .key = "v", .word = "version", .desc = "show version" }},
+			{ "list",      { .key = "l", .word = "list", .desc = "list available interfaces" }},
+			{ "interface", { .key = "i", .word = "interface", .desc = "interface to monitor", .flag = usage_t::REQUIRED, .name = "interface" }},
+			{ "bits",      { .key = "b", .word = "bits", .desc = "display kbps (kilobits) instead of KBps (kilobytes)" }},
+			{ "keep",      { .key = "k", .word = "keep", .desc = "keep units, do not scale kb up to mb as the number grows" }},
+			{ "delay",     { .key = "d", .word = "delay", .desc = "sample interval in milliseconds, 500-4000 (default 1000)", .flag = usage_t::REQUIRED, .name = "ms", .type = usage_t::INT }}
+		}
+	};
 
-	cmdparser.parse();
+	if ( usage["help"] ) {
+		version_header();
+		std::cout << usage << "\n" << usage.help() << std::endl;
+		return 0;
+	}
+
+	if ( usage["version"] ) {
+		version_header();
+		return 0;
+	}
+
+	if ( !usage.validated ) {
+
+		auto errors = usage.errors();
+		std::cout << "command-line errors:\n" << errors << std::endl;
+
+		if ( std::any_of(errors.begin(), errors.end(), [](const usage_t::error_t& e) {
+				return e.error != usage_t::error_type::DUPLICATE && e.error != usage_t::error_type::UNKNOWN_OPTION;
+			})) {
+			std::cout << "\naborting due to fatal command-line errors." << std::endl;
+			return 1;
+		}
+	}
+
+	bool list_ifds = usage["list"];
+	bool kbps = usage["bits"];	// default is KBps (kilobytes); -b switches to kbps (kilobits)
+	bool keep_unit = usage["keep"];
+	int interval = 1000;
+	std::string ifd_name = usage["interface"] ? (std::string)usage["interface"] : "";
+
+	if ( usage["delay"] ) {
+
+		long d = usage["delay"].intValue();
+		if ( d < 500 || d > 4000 ) {
+			std::cout << "illegal interval selected. Value must be between 500 and 4000 milliseconds." << std::endl;
+			return 1;
+		}
+		interval = (int)d;
+	}
 
 	bool ifd_ok = false;
 	bandwidth::monitor bm;
+
 	if ( !bm.update()) {
 		std::cout << "error: failed to open/read file /proc/net/dev\nAborted" << std::endl;
 		return 1;
@@ -126,11 +100,11 @@ int main(int argc, char **argv) {
 
 		std::cout << std::endl;
 		return 0;
+
 	} else if ( ifd_name.empty()) {
 		std::cout << "error: interface was not defined. Use -i to select interface, or -l to list available interfaces." << std::endl;
 		return 1;
 	} else if ( !ifd_ok ) {
-
 		std::cout << "error: interface \"" << ifd_name << "\" was not found. Use -l argument to list available interfaces." << std::endl;
 		return 1;
 	}
@@ -138,8 +112,7 @@ int main(int argc, char **argv) {
 	version_header();
 	std::cout << std::endl;
 
-	bool ok = bm.update();
-	if ( !ok ) {
+	if ( !bm.update()) {
 		std::cout << "error: failed to open/read file /proc/net/dev\nAborted" << std::endl;
 		return 1;
 	}
@@ -150,9 +123,9 @@ int main(int argc, char **argv) {
 
 	while ( true ) {
 
-		std::this_thread::sleep_for (std::chrono::milliseconds(interval));
+		std::this_thread::sleep_for(std::chrono::milliseconds(interval));
 
-		if (!bm.update()) {
+		if ( !bm.update()) {
 			std::cout << "error: failed to open/read file /proc/net/dev\nAborted" << std::endl;
 			return 1;
 		}
@@ -169,7 +142,7 @@ int main(int argc, char **argv) {
 			bool m_tx = false;
 
 			uint64_t new_rx = ifd.rx_rate() / 1024;
-			uint64_t new_tx = ifd.rx_rate() / 1024;
+			uint64_t new_tx = ifd.tx_rate() / 1024;
 
 			if ( kbps ) {
 				new_rx *= 8;
@@ -188,7 +161,8 @@ int main(int argc, char **argv) {
 				}
 			}
 
-			// not perfect, comparison with 1024kb and 1024mb returns true, but accurate enough for this example
+			// not perfect: comparison with 1024kb and 1024mb returns true, but
+			// accurate enough for this example
 			if ( rx != new_rx || tx != new_tx || first ) {
 
 				rx = new_rx;
@@ -206,7 +180,6 @@ int main(int argc, char **argv) {
 			std::cout << "error: interface \"" << ifd_name << "\" is not available.\nAborted." << std::endl;
 			return -1;
 		}
-
 	}
 
 	return 0;

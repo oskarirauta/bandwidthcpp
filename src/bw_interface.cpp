@@ -4,8 +4,10 @@
 void bandwidth::interface::update(uint64_t rxb, uint64_t rxp, uint64_t rxe,
 				uint64_t txb, uint64_t txp, uint64_t txe) {
 
-	uint64_t rxc = rxb - this -> _rx_bytes;
-	uint64_t txc = txb - this -> _tx_bytes;
+	// guard against counter resets (e.g. interface restart): a smaller new
+	// value would otherwise underflow to a huge bogus rate
+	uint64_t rxc = rxb >= this -> _rx_bytes ? rxb - this -> _rx_bytes : 0;
+	uint64_t txc = txb >= this -> _tx_bytes ? txb - this -> _tx_bytes : 0;
 
 	this -> _rx_bytes = rxb;
 	this -> _rx_packets = rxp;
@@ -44,7 +46,7 @@ void bandwidth::interface::update(uint64_t rxb, uint64_t rxp, uint64_t rxe,
 			cnt *= 0.5;
 		}
 
-		double multiplier = 1000 / cnt;
+		double multiplier = 1000.0 / cnt;
 
 		if ( multiplier > 0 ) {
 

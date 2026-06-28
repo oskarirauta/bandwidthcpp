@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cctype>
 #include "bandwidth.hpp"
 
 bandwidth::monitor::monitor() {
@@ -67,7 +68,7 @@ static bool parse_line(const std::string &line, std::string &ifd_name, unsigned 
 
 		if ( idx == 0 && ch != ' ' && ch != '\t' )
 			value += ch;
-		else if ( idx != 0 && !isdigit(ch))
+		else if ( idx != 0 && !isdigit(( unsigned char )ch))
 			return false;
 		else if ( idx != 0 ) {
 			n = ( n * 10 ) + ch - 48;
